@@ -57,17 +57,24 @@ class TestStateMachine(unittest.TestCase):
         self.assertEqual(sm.current_state, GestureState.POINTING)
         self.assertEqual(r2["action"], "mouse_move")
 
-        # Switch to Pinch/Drag
-        sm.update(GestureState.PINCH_DRAG)
-        r4 = sm.update(GestureState.PINCH_DRAG)
-        self.assertEqual(sm.current_state, GestureState.PINCH_DRAG)
+        # 2. Transition to CLICK (Single Left Click)
+        sm.update(GestureState.CLICK)
+        r3 = sm.update(GestureState.CLICK)
+        self.assertEqual(sm.current_state, GestureState.CLICK)
+        self.assertEqual(r3["action"], "click")
+        self.assertFalse(sm.is_mouse_down)
+
+        # 3. Transition to OPEN_HAND (Hold Drag)
+        sm.update(GestureState.OPEN_HAND)
+        r4 = sm.update(GestureState.OPEN_HAND)
+        self.assertEqual(sm.current_state, GestureState.OPEN_HAND)
         self.assertTrue(sm.is_mouse_down)
         self.assertEqual(r4["action"], "mouse_down")
 
-        # Open hand releases click
-        sm.update(GestureState.OPEN_HAND)
-        r6 = sm.update(GestureState.OPEN_HAND)
-        self.assertEqual(sm.current_state, GestureState.OPEN_HAND)
+        # 4. Transition back to POINTING (Release Hold)
+        sm.update(GestureState.POINTING)
+        r6 = sm.update(GestureState.POINTING)
+        self.assertEqual(sm.current_state, GestureState.POINTING)
         self.assertFalse(sm.is_mouse_down)
         self.assertEqual(r6["action"], "mouse_up")
 
@@ -179,6 +186,16 @@ class TestGestureClassifier(unittest.TestCase):
         hand = make_mock_hand({"index": True, "middle": True, "ring": True, "pinky": True}, pinch_dist_norm=0.8)
         state, _ = self.classifier.classify(hand)
         self.assertEqual(state, GestureState.OPEN_HAND)
+
+    def test_click_classification_two_fingers(self):
+        hand = make_mock_hand({"index": True, "middle": True, "ring": False, "pinky": False}, pinch_dist_norm=0.8)
+        state, _ = self.classifier.classify(hand)
+        self.assertEqual(state, GestureState.CLICK)
+
+    def test_click_classification_pinch(self):
+        hand = make_mock_hand({"index": True, "middle": False, "ring": False, "pinky": False}, pinch_dist_norm=0.2)
+        state, _ = self.classifier.classify(hand)
+        self.assertEqual(state, GestureState.CLICK)
 
     def test_window_controller_lookup(self):
         ctrl = WindowController()

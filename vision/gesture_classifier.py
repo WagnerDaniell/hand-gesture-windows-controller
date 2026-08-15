@@ -55,32 +55,25 @@ class GestureClassifier:
 
         # Classification Hierarchy:
         
-        # 1. PINCH / DRAG: Thumb and Index are close together
-        # (Allows dragging a window or clicking with precision)
-        if is_pinching:
-            # Pinch is active if thumb and index tips are pinched
-            detected_state = GestureState.PINCH_DRAG
-
-        # 2. CLOSED FIST: All 4 non-thumb fingers are folded, thumb is folded or neutral
-        elif (not index_open) and (not middle_open) and (not ring_open) and (not pinky_open):
+        # 1. CLOSED FIST: All 4 non-thumb fingers are folded -> Safety Pause
+        if (not index_open) and (not middle_open) and (not ring_open) and (not pinky_open):
             detected_state = GestureState.FIST
 
-        # 3. OPEN HAND: All 5 fingers (or at least 4 main fingers) extended
+        # 2. OPEN HAND: All 4 or 5 fingers extended -> Hold Click / Drag Mode
         elif index_open and middle_open and ring_open and pinky_open:
             detected_state = GestureState.OPEN_HAND
 
-        # 4. POINTING / CURSOR CONTROL: Index is extended, middle/ring/pinky folded
-        elif index_open and (not middle_open) and (not ring_open) and (not pinky_open):
-            detected_state = GestureState.POINTING
+        # 3. SINGLE CLICK: Two fingers extended (✌️ Index + Middle) OR Quick Pinch (👌 Thumb + Index)
+        elif (index_open and middle_open and not ring_open and not pinky_open) or is_pinching:
+            detected_state = GestureState.CLICK
 
-        # 5. Hybrid pointing with thumb extended
+        # 4. POINTING / CURSOR CONTROL: Index extended, other fingers folded (👆)
         elif index_open and (not middle_open) and (not ring_open) and (not pinky_open):
             detected_state = GestureState.POINTING
 
         # Fallback / Intermediate pose
         else:
-            # If index is open and ring/pinky closed (e.g. index+middle or slight relaxed hand), default to pointing
-            if index_open and (not ring_open) and (not pinky_open):
+            if index_open:
                 detected_state = GestureState.POINTING
             else:
                 detected_state = GestureState.UNKNOWN

@@ -1,130 +1,149 @@
 # 🖐️ Hand Gesture Windows Controller (Windows 11)
 
-Um sistema completo em Python de alta performance para **controlar o cursor do mouse e gerenciar janelas do Windows 11 em tempo real** através de gestos manuais capturados pela webcam, com suporte a múltiplos monitores, filtro anti-tremor One Euro (1€ Filter), debounce de segurança e HUD interativo.
+Um sistema de alto desempenho em Python para **controlar o cursor do mouse, disparar cliques atômicos e manipular janelas no Windows 11 em tempo real** através de visão computacional via webcam, com arquitetura **Dual-Hand (duas mãos)**, filtro anti-tremor **One Euro (1€ Filter)** com amortecimento suave de parada, suporte a múltiplos monitores e HUD interativo.
 
 ---
 
 ## 📋 Sumário
-1. [Objetivos e Funcionalidades](#-objetivos-e-funcionalidades)
-2. [Tabela de Gestos](#-tabela-de-gestos)
-3. [Arquitetura do Sistema](#-arquitetura-do-sistema)
-4. [Análise Técnica e Bibliotecas Escolhidas](#-análise-técnica-e-bibliotecas-escolhidas)
+1. [Destaques e Funcionalidades](#-destaques-e-funcionalidades)
+2. [Modos de Uso e Tabela de Gestos](#-modos-de-uso-e-tabela-de-gestos)
+   - [Modo Recomendado: 2 Mãos (Dual-Hand)](#-modo-recomendado-2-mãos-dual-hand)
+   - [Modo 1 Mão (Single-Hand)](#-modo-1-mão-single-hand)
+   - [Trava Geral de Pausa / Retomada](#-trava-geral-de-pausa--retomada)
+3. [Arquitetura do Projeto](#-arquitetura-do-projeto)
+4. [Inovações Técnicas e Algoritmos](#-inovações-técnicas-e-algoritmos)
 5. [Instalação e Pré-requisitos](#-instalação-e-pré-requisitos)
 6. [Como Executar](#-como-executar)
-7. [Atalhos e Botão de Emergência](#-atalhos-e-botão-de-emergência)
-8. [Configurações e Calibração](#-configurações-e-calibração)
+7. [Atalhos de Teclado](#-atalhos-de-teclado)
+8. [Configurações e Personalização (`config.py`)](#-configurações-e-personalização-configpy)
 9. [Testes Automatizados](#-testes-automatizados)
 
 ---
 
-## 🎯 Objetivos e Funcionalidades
+## 🎯 Destaques e Funcionalidades
 
-- **Detecção de Mãos em Tempo Real**: Rastreamento de 21 landmarks 3D usando **Google MediaPipe Hands**.
-- **Controle de Janelas e Mouse no Windows 11**: Utilização de APIs nativas Win32 (`pywin32`, `ctypes.windll.user32`) para resposta instantânea a 60+ FPS sem latência.
-- **Suporte Nativo a Múltiplos Monitores**: Mapeamento contínuo sobre o Desktop Virtual do Windows (`SM_XVIRTUALSCREEN`, `SM_CXVIRTUALSCREEN`), permitindo arrastar janelas entre monitores com facilidade.
-- **Filtro Anti-Tremor One Euro (1€ Filter)**: Algoritmo de filtragem adaptativo por velocidade — alta suavidade e estabilidade para cliques precisos em baixa velocidade, e zero atraso em movimentos rápidos.
-- **Zona Ativa de Calibração (ROI)**: Caixa delimitadora configurável na câmera para que o usuário alcance todos os cantos da tela com conforto, sem precisar esticar os braços.
-- **Sistema de Debounce & Histerese**: Previne cliques acidentais e flickers de transição de estado.
-- **Killswitch Global de Emergência**: Interrupção ou pausa imediata a qualquer momento (via teclas `ESC` ou `F8`), mesmo com o HUD minimizado.
-- **HUD Visual Moderno**: Interface em OpenCV mostrando o esqueleto da mão, métricas em tempo real, estado do mouse, coordenadas e FPS.
+- **Arquitetura Dual-Hand (Dois Papéis Independentes)**: Separação total entre a mão que guia o mouse e a mão que dispara os cliques. A mão de mira nunca precisa mexer os dedos, eliminando 100% de solavancos e desvios ao clicar.
+- **Detecção Dinâmica por Quantidade de Mãos**:
+  - **1 Mão na tela**: Controla livremente o cursor por todo o monitor (não perde o foco mesmo ao cruzar a tela).
+  - **2 Mãos na tela**: A mão posicionada à esquerda vira o gatilho de ações e a da direita continua na mira.
+- **Clique Atômico vs. Segurar/Arrastar (100% Separados)**: Clique rápido instantâneo que não trava o botão do mouse, evitando que o Windows confunda um clique com seleção ou arraste de arquivos.
+- **Trava de Pausa Universal com Punho Fechado (✊)**: Fechar o punho com qualquer uma das mãos pausa e congela o sistema instantaneamente; fechar o punho novamente destrava e retoma o controle.
+- **Filtro Anti-Tremor One Euro com Smoothstep Easing**: Rigidez máxima em repouso (`min_cutoff = 0.05`), zona morta milimétrica de 2 pixels e curva de desaceleração suave que faz o cursor pousar sem tremores.
+- **Multiplicador de Velocidade e Alcance de Cantos (`speed_multiplier = 1.35`)**: Deslocamento ágil do mouse que alcança todos os 4 cantos da tela sem exigir que a mão chegue nas bordas físicas da webcam.
+- **Motor MediaPipe Tasks Vision com Carregamento em Buffer**: Compatível com Python 3.10 a 3.14 e imune a erros de caracteres especiais e acentuação no caminho de pastas do Windows.
+- **Suporte Nativo a Múltiplos Monitores Win32**: Mapeamento sobre o Desktop Virtual (`SM_XVIRTUALSCREEN`) com emulação via `ctypes.windll.user32` a 60+ FPS sem latência.
 
 ---
 
-## 🖐️ Tabela de Gestos
+## 🖐️ Modos de Uso e Tabela de Gestos
 
-| Gesto | Descrição do Gesto | Ação no Windows |
+### 👐 Modo Recomendado: 2 Mãos (Dual-Hand)
+
+Neste modo, a mão direita cuida da mira e a mão esquerda atua como gatilho:
+
+| Mão | Gesto | Ação no Windows |
 | :--- | :--- | :--- |
-| 👆 **Dedo Indicador Levantado** | Dedo indicador estendido; médium, anelar e mínimo dobrados | **Move o cursor do mouse** com suavidade milimétrica sobre a tela. |
-| 👌 **Pinça (Indicador + Polegar)** | Ponta do indicador e polegar aproximados/tocando | **Clique e Segurar Botão Esquerdo** (`mouse_down`). Ao mover a mão, **arrasta janelas** pela barra de título ou itens na tela. |
-| 🖐️ **Mão Aberta** | Todos os 5 dedos estendidos | **Solta o botão esquerdo** (`mouse_up`) / Estado de sobrevoo neutro. |
-| ↔️ **Movimento Lateral (Pinçado)** | Mão em pinça movendo-se lateralmente | **Move e transfere a janela** entre os monitores conectados. |
-| ✊ **Punho Fechado** | Todos os dedos fechados em direção à palma | **Trava de Segurança / Neutro** — nenhuma ação é executada (permite descansar a mão). |
+| **👉 Mão Direita** *(Mira)* | 👆 **Dedo Indicador Apontando** | **Move o cursor do mouse** com máxima precisão. Fica 100% firme durante os cliques. |
+| **👈 Mão Esquerda** *(Ações)* | ✌️ **Dois Dedos** ou 👌 **Pinça** | **Clique Esquerdo Simples (Instantâneo)** — Dispara 1 clique pontual sem arrasto. |
+| **👈 Mão Esquerda** *(Ações)* | 🖐️ **Mão Aberta** | **Segurar Clique & Arrastar (Hold Drag)** — Segura o botão esquerdo para mover janelas ou selecionar textos; solta ao fechar a mão. |
 
 ---
 
-## 🏗️ Arquitetura do Sistema
+### ☝️ Modo 1 Mão (Single-Hand)
 
-O projeto segue princípios de arquitetura modular, limpa e desacoplada:
+Quando apenas uma mão está visível na câmera:
+- **👆 Dedo Indicador**: Movimenta o cursor livremente por toda a tela.
+- **✌️ Dois Dedos / 👌 Pinça**: Clique simples no local apontado.
+- **🖐️ Mão Aberta**: Segura o clique para arrastar.
+
+---
+
+### 🔒 Trava Geral de Pausa / Retomada
+
+| Gesto | Descrição | Comportamento |
+| :--- | :--- | :--- |
+| ✊ **Punho Fechado** *(Qualquer Mão)* | Fechar todos os dedos em punho | **Trava / Pausa Imediata**: Congela o cursor, solta cliques e impede qualquer ação acidental.<br>**Destravar**: Faça o punho fechado (✊) novamente para retomar o controle. |
+
+---
+
+## 🏗️ Arquitetura do Projeto
 
 ```
-projetopython/
+hand-gesture-windows-controller/
 │
-├── config.py                 # Central de configurações e hiperparâmetros
-├── main.py                   # Orquestrador e loop principal da aplicação
+├── config.py                 # Central de configurações (velocidade, margens, filtros)
+├── main.py                   # Orquestrador principal, loop de vídeo e despacho de ações
 ├── requirements.txt          # Dependências do projeto
-├── run.bat                   # Script inicializador para Windows
-├── README.md                 # Documentação completa
+├── run.bat                   # Inicializador rápido para Windows
+├── README.md                 # Documentação oficial
 │
-├── core/                     # Núcleo de processamento matemático e lógica
-│   ├── __init__.py
-│   ├── smoothing.py          # Implementação do 1€ Filter (One Euro) e EMA
-│   └── state_machine.py      # Máquina de estados com debounce e histerese
+├── core/                     # Processamento matemático e estados
+│   ├── smoothing.py          # One Euro Filter adaptativo + Deceleração Smoothstep
+│   └── state_machine.py      # Máquina de estados desacoplada com debounce e cooldown
 │
-├── vision/                   # Módulos de visão computacional
-│   ├── __init__.py
-│   ├── hand_detector.py      # Wrapper do MediaPipe Hands com normalização de escala
-│   └── gesture_classifier.py # Classificador geométrico de poses e distâncias 3D
+├── vision/                   # Visão computacional e inteligência artificial
+│   ├── hand_detector.py      # Wrapper MediaPipe Tasks com suporte a multi-mãos e buffer
+│   ├── gesture_classifier.py # Classificador geométrico 3D de poses e distâncias
+│   └── models/
+│       └── hand_landmarker.task  # Modelo de landmarks de mãos MediaPipe
 │
-├── window_manager/           # Integração com Windows 11 e Monitores
-│   ├── __init__.py
-│   ├── monitor_manager.py    # Gerenciamento de múltiplos monitores e Desktop Virtual
-│   └── window_controller.py  # Manipulação de HWNDs, janelas e docking Win32
+├── window_manager/           # Integração com Windows 11 e Displays
+│   ├── monitor_manager.py    # Gerenciador de múltiplos monitores e Desktop Virtual
+│   └── window_controller.py  # Manipulação nativa de HWNDs e janelas Win32
 │
-├── input_controller/         # Emulação de mouse e escuta de teclado
-│   ├── __init__.py
-│   ├── mouse_controller.py   # Emulador Win32 ctypes para movimentos sem lag
-│   └── hotkey_listener.py    # Hook global de teclado via pynput para Killswitch
+├── input_controller/         # Emulação de mouse e atalhos
+│   ├── mouse_controller.py   # Emulação de baixo nível via Win32 ctypes (zero input lag)
+│   └── hotkey_listener.py    # Escuta global de atalhos de teclado (F8 / ESC)
 │
-├── ui/                       # Interface gráfica e feedback visual
-│   ├── __init__.py
-│   └── hud_renderer.py       # Renderizador do HUD OpenCV de alta fidelidade
+├── ui/                       # Interface e feedback visual
+│   └── hud_renderer.py       # HUD OpenCV moderno com identificação colorida das mãos
 │
-└── tests/                    # Suíte de testes unitários automatizados
+└── tests/                    # Suíte de testes automatizados
     └── test_gesture_system.py
 ```
 
 ---
 
-## 🔬 Análise Técnica e Bibliotecas Escolhidas
+## 🔬 Inovações Técnicas e Algoritmos
 
-### 1. Manipulação de Janelas e Múltiplos Monitores no Windows 11
-- **`pywin32` (`win32gui`, `win32api`, `win32con`)**: Escolhida por ser a biblioteca padrão da indústria para comunicação direta com a API Win32 no Windows. Fornece acesso nativo a `GetSystemMetrics(SM_XVIRTUALSCREEN)` (que cobre monitores com coordenadas negativas e resoluções assimétricas), `WindowFromPoint`, `GetAncestor` e `SetWindowPos`.
-- **`screeninfo`**: Fornece enumeração limpa e estruturada das dimensões físicas e virtuais de cada display conectado.
+### 1. Desacoplamento Dual-Hand
+Ao rastrear duas mãos simultaneamente, o sistema separa as responsabilidades com ordenação espacial no plano espelhado:
+- $\text{Hand}_{\text{action}} = \arg\min_{h} (h.\text{wrist.x})$ (Mão mais à esquerda na imagem)
+- $\text{Hand}_{\text{cursor}} = \arg\max_{h} (h.\text{wrist.x})$ (Mão mais à direita na imagem)
 
-### 2. Controle de Mouse de Baixíssima Latência
-- **`ctypes.windll.user32`**: Chamadas diretas a `SetCursorPos` e `mouse_event` são despachadas diretamente para o subsistema do Windows em microssegundos, eliminando o atraso de 100ms comum no modo padrão de bibliotecas de automação genéricas.
-- **`pyautogui`**: Configurado com `PAUSE = 0` e `FAILSAFE = False` como camada de utilidades e fallback.
+### 2. Estabilização e Amortecimento de Parada (1€ Filter + Smoothstep)
+O sistema combina o **One Euro Filter** com uma função de interpolação Hermite (*Smoothstep*) para desaceleração natural:
+$$\text{ease}(r) = 3r^2 - 2r^3, \quad r = \frac{d - \text{deadzone}}{\text{damping\_radius} - \text{deadzone}}$$
+- Se a distância $d \le 2\text{px}$: o cursor congela (elimina ruído da câmera e tremor fisiológico).
+- Se $2\text{px} < d < 14\text{px}$: o cursor realiza uma transição suave e amortecida até repousar.
+- Se $d \ge 14\text{px}$: resposta direta com zero latência.
 
-### 3. Filtro Anti-Tremor: One Euro Filter (1€ Filter)
-- Mãos humanas apresentam micro-tremores naturais quando tentamos mantê-las paradas no ar. Filtros comuns (como média móvel simples) adicionam atraso indesejado.
-- O **One Euro Filter** (*Casiez et al., CHI 2012*) resolve isso usando uma frequência de corte adaptativa à velocidade:
-  $$\hat{x}_k = \alpha x_k + (1-\alpha)\hat{x}_{k-1}$$
-  $$\alpha = \frac{1}{1 + \frac{\tau}{T}}, \quad \tau = \frac{1}{2\pi (f_{c,\min} + \beta |\dot{x}|)}$$
-- Quando a mão está quase parada ($|\dot{x}| \approx 0$), o filtro prioriza a estabilidade extrema. Em movimentos rápidos, o cutoff aumenta e a latência cai a zero.
+### 3. Amplificação de Alcance nos Cantos
+$$\text{norm\_coord} = \left(\frac{p - \text{center}}{\text{roi\_size}}\right) \times \text{speed\_multiplier} + 0.5$$
+Com `speed_multiplier = 1.35` e margens de segurança de 18%, o cursor atinge os limites $0.0$ e $1.0$ do Desktop Virtual antes que a mão do usuário chegue perto dos limites do enquadramento da câmera.
 
 ---
 
 ## 🚀 Instalação e Pré-requisitos
 
 ### Pré-requisitos
-- **Sistema Operacional**: Windows 10 ou Windows 11 (64-bit).
-- **Python**: Versão 3.10, 3.11 ou 3.12 instalada.
+- **Windows 10 ou 11** (64-bit).
+- **Python**: 3.10, 3.11, 3.12, 3.13 ou 3.14.
 - **Webcam**: Integrada ou USB.
 
-### Passo a Passo
+### Instalação
 
-1. **Abra o terminal (PowerShell ou CMD) na pasta do projeto**:
+1. Clone ou extraia o projeto no seu computador.
+2. Abra o terminal na pasta do projeto:
    ```powershell
-   cd C:\Users\wagne\Desktop\projetopython
+   cd "c:\caminho\para\hand-gesture-windows-controller"
    ```
-
-2. **Crie e ative o ambiente virtual (se ainda não existir)**:
+3. Crie e ative o ambiente virtual:
    ```powershell
    python -m venv .venv
    .\.venv\Scripts\Activate.ps1
    ```
-
-3. **Instale as dependências**:
+4. Instale os pacotes necessários:
    ```powershell
    pip install -r requirements.txt
    ```
@@ -144,56 +163,57 @@ run.bat
 .\.venv\Scripts\python.exe main.py
 ```
 
-### Opções de Linha de Comando
-Você pode personalizar parâmetros diretamente via CLI:
+### Argumentos de Linha de Comando (CLI)
 ```powershell
-# Usar câmera específica (ex: câmera externa 1)
+# Usar uma webcam secundária (ex: índice 1)
 .\.venv\Scripts\python.exe main.py --camera 1
 
-# Mudar modo de monitor (span_all ou primary_only)
+# Travar o controle apenas no monitor principal
 .\.venv\Scripts\python.exe main.py --mode primary_only
 
-# Ajustar sensibilidade do filtro anti-tremor
-.\.venv\Scripts\python.exe main.py --min-cutoff 1.0 --beta 0.08
+# Ajustar parâmetros do filtro One Euro
+.\.venv\Scripts\python.exe main.py --min-cutoff 0.05 --beta 0.08
 ```
 
 ---
 
-## ⌨️ Atalhos e Botão de Emergência
-
-O aplicativo possui escuta global de teclado ativa em segundo plano:
+## ⌨️ Atalhos de Teclado
 
 | Tecla | Função |
 | :--- | :--- |
-| **`ESC`** ou **`Q`** | 🛑 **Killswitch de Emergência** — Encerra a aplicação e libera imediatamente os botões do mouse. |
-| **`F8`** ou **`ESPAÇO`** | ⏸️ **Pausar / Retomar** — Trava o controle por gestos temporariamente sem fechar o programa. |
+| **`ESC`** ou **`Q`** | 🛑 **Killswitch de Emergência** — Finaliza o programa e solta todos os cliques. |
+| **`F8`** ou **`ESPAÇO`** | ⏸️ **Pausar / Retomar** — Trava ou destrava o controle via teclado. |
 | **`M`** | 🖥️ **Alternar Modo de Monitor** — Cicla entre *SPAN ALL* (todos os monitores) e *PRIMARY ONLY*. |
-| **`D`** | 📊 **Alternar HUD** — Oculta/exibe painéis de telemetria na janela OpenCV. |
+| **`D`** | 📊 **Alternar HUD** — Oculta ou exibe as sobreposições gráficas na janela da câmera. |
 
 ---
 
-## ⚙️ Configurações e Calibração
+## ⚙️ Configurações e Personalização (`config.py`)
 
-Todas as preferências podem ser ajustadas em [`config.py`](file:///C:/Users/wagne/Desktop/projetopython/config.py):
+No arquivo [`config.py`](file:///c:/Users/wagne/OneDrive/%C3%81rea%20de%20Trabalho/hand-gesture-windows-controller/config.py), você pode personalizar:
 
-- **Área Ativa (ROI)**: `margin_x_min = 0.15`, `margin_x_max = 0.85` (delimita o retângulo azul na tela onde sua mão mapeia de 0% a 100% da tela).
-- **Distância de Pinça**: `pinch_threshold = 0.32` e `pinch_release_threshold = 0.45` (normalizados pelo comprimento da palma, permitindo usar de perto ou de longe).
-- **Debounce de Cliques**: `click_debounce_frames = 2` (exige 2 quadros consecutivos para confirmar a mudança de gesto).
+- **`speed_multiplier`** *(padrão: `1.35`)*: Velocidade e sensibilidade do mouse.
+- **`margin_x_min` / `margin_x_max`** *(padrão: `0.18` / `0.82`)*: Área delimitadora de alcance na câmera.
+- **`deadzone_pixels`** *(padrão: `2.0`)*: Raio de congelamento anti-tremor quando a mão está parada.
+- **`damping_radius`** *(padrão: `14.0`)*: Raio de desaceleração suave de parada.
+- **`min_cutoff`** *(padrão: `0.05`)*: Rigidez da filtragem em baixas velocidades.
+- **`beta`** *(padrão: `0.08`)*: Aceleração em movimentos rápidos sem lag.
 
 ---
 
 ## 🧪 Testes Automatizados
 
-Para rodar a suíte de testes unitários e validar todos os cálculos matemáticos e estados:
+Para rodar a suíte completa de testes unitários:
 ```powershell
-.\.venv\Scripts\python.exe -m unittest discover -s tests
+.\.venv\Scripts\python.exe -m unittest discover tests
 ```
-Resultado esperado: `Ran 10 tests in 0.003s -> OK`
+Resultado esperado: `Ran 12 tests in 0.004s -> OK`
 
 ---
 
-## 👨‍💻 Desenvolvido com
-- **Google MediaPipe** (Computer Vision & Hand Pose)
-- **OpenCV** (Real-time Video Processing & HUD)
-- **PyWin32 & Windows User32 SDK** (Win32 OS Interop)
-- **ScreenInfo** (Multi-Monitor Geometry Engine)
+## 🛠️ Tecnologias Utilizadas
+- **Google MediaPipe Tasks API** (Detecção e rastreamento de 21 landmarks 3D)
+- **OpenCV Python** (Processamento de vídeo e HUD interativo)
+- **Win32 User32 Ctypes & PyWin32** (Emulação de cursor e janelas em tempo real)
+- **ScreenInfo** (Geometria do Desktop Virtual Multi-Monitor)
+- **Pynput** (Escuta assíncrona de atalhos globais)

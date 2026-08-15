@@ -20,7 +20,7 @@ class CameraConfig:
 @dataclass
 class HandTrackingConfig:
     """MediaPipe Hands detector parameters."""
-    max_num_hands: int = 1
+    max_num_hands: int = 2
     min_detection_confidence: float = 0.70
     min_tracking_confidence: float = 0.70
     model_complexity: int = 1  # 0: Lite, 1: Full
@@ -28,13 +28,15 @@ class HandTrackingConfig:
 
 @dataclass
 class CalibrationConfig:
-    """Active region of interest (ROI) box in the camera frame."""
-    # Normalized margin percentages inside the camera frame
-    # A value of 0.15 means 15% padding from each border (60% active area)
-    margin_x_min: float = 0.15
-    margin_x_max: float = 0.85
-    margin_y_min: float = 0.15
-    margin_y_max: float = 0.80
+    """Active region of interest (ROI) box in the camera frame and cursor speed settings."""
+    # Normalized margin percentages inside the camera frame (safe buffer to prevent hand cutoff)
+    margin_x_min: float = 0.18
+    margin_x_max: float = 0.82
+    margin_y_min: float = 0.18
+    margin_y_max: float = 0.78
+    
+    # Cursor speed / sensitivity multiplier (Higher value = faster mouse, less arm movement needed to reach corners)
+    speed_multiplier: float = 1.35
 
 
 @dataclass
@@ -42,13 +44,14 @@ class SmoothingConfig:
     """OneEuroFilter and smoothing settings for cursor stabilization."""
     filter_type: str = "one_euro"  # "one_euro" or "ema"
     # OneEuroFilter parameters:
-    min_cutoff: float = 1.2  # Lower values = more jitter suppression at low speeds
-    beta: float = 0.05       # Higher values = less lag at high speeds
-    d_cutoff: float = 1.0    # Derivative cutoff frequency
+    min_cutoff: float = 0.05  # Ultra-low cutoff at standstill = eliminates hand tremors
+    beta: float = 0.08        # High speed responsiveness = zero lag on quick motion
+    d_cutoff: float = 1.0     # Derivative cutoff frequency
     # Exponential Moving Average fallback alpha:
-    ema_alpha: float = 0.35
-    # Deadzone (ignore micro movements in screen pixels)
-    deadzone_pixels: float = 1.5
+    ema_alpha: float = 0.30
+    # Deadzone & Deceleration easing:
+    deadzone_pixels: float = 2.0   # Absolute freeze radius on full stop
+    damping_radius: float = 14.0    # Smoothstep deceleration radius when coming to a halt
 
 
 @dataclass

@@ -6,6 +6,7 @@ multi-monitor management, and native Windows automation.
 
 import argparse
 import sys
+sys.stdout.reconfigure(encoding='utf-8')
 import time
 from typing import Optional, Tuple
 import cv2
@@ -69,6 +70,7 @@ class GestureApp:
             d_cutoff=self.cfg.smoothing.d_cutoff,
             ema_alpha=self.cfg.smoothing.ema_alpha,
             deadzone_pixels=self.cfg.smoothing.deadzone_pixels,
+            damping_radius=self.cfg.smoothing.damping_radius,
         )
 
         print("[INIT] Initializing HUD Overlay Engine...")
@@ -90,18 +92,24 @@ class GestureApp:
         # Telemetry
         self.fps = 0.0
         self.last_frame_time = time.perf_counter()
+        self.last_fist_toggle_time = 0.0
+        self.fist_toggle_cooldown = 1.0
         self.smoothed_pos = (0, 0)
         self.raw_screen_pos = (0, 0)
 
     def run(self):
         """Main camera and control loop."""
         print("\n=======================================================")
-        print("  GESTURE CONTROLLER RUNNING (Windows 11)")
-        print("  Gestures:")
-        print("    👆 Index Pointing    -> Move Mouse Cursor")
-        print("    👌 Pinch (Thumb+Index) -> Left Click Down / Drag Window")
-        print("    🖐️  Open Hand         -> Release Click / Neutral Hover")
-        print("    ✊ Closed Fist       -> Safety Lock / Pause Control")
+        print("  GESTURE CONTROLLER RUNNING (Windows 11) - DUAL HAND SUPPORT")
+        print("  Modes:")
+        print("    🟢 1 MÃO: Dedo Indicador (👆) move o mouse.")
+        print("    🟢 2 MÃOS (Recomendado!):")
+        print("       👉 MÃO DIREITA (Navegação): Aponta o indicador para mover o mouse.")
+        print("       👉 MÃO ESQUERDA (Gatilho / Ações):")
+        print("          • ✌️ Dois Dedos ou 👌 Pinça -> Clique Esquerdo Simples")
+        print("          • 🖐️ Mão Aberta            -> Segurar Clique & Arrastar (Hold Drag)")
+        print("    🔒 TRAVA DE PAUSA GERAL:")
+        print("       • ✊ Punho Fechado (Qualquer Mão) -> Trava / Destrava Todo o Controle")
         print("  Controls:")
         print(f"    [{self.cfg.hotkeys.emergency_kill_key.upper()}] Emergency Stop | [{self.cfg.hotkeys.pause_toggle_key.upper()}] Pause / Resume")
         print("    [M] Cycle Monitor Mode | [D] Toggle HUD Overlays")
@@ -129,54 +137,74 @@ class GestureApp:
 
                 h, w, _ = frame.shape
 
-                # 1. Vision - Detect Hand Landmarks
-                hand = self.detector.process_frame(frame)
+                # 1. Vision - Detect All Hand Landmarks (Multi-Hand)
+                hands = self.detector.process_hands(frame)
 
-                # 2. Classification & State Update
-                if hand is not None:
-                    raw_gesture, metrics = self.classifier.classify(hand)
+                cursor_hand = None
+                action_hand = None
+
+                # Check if ANY hand is making a Closed Fist (✊) to Toggle Pause / Resume
+                if len(hands) > 0:
+                    is_any_fist = any(self.classifier.classify(h)[0] == GestureState.FIST for h in hands)
+                    if is_any_fist and (loop_start - self.last_fist_toggle_time) >= self.fist_toggle_cooldown:
+                        self.last_fist_toggle_time = loop_start
+                        self.toggle_pause()
+
+                is_paused = self.state_machine.is_paused
+
+                # 2. Dynamic Hand Assignment by Hand Count:
+                # - 1 Hand on screen: ALWAYS controls the cursor (full screen traversal)
+                # - 2 Hands on screen: Leftmost hand = Click/Actions, Rightmost hand = Cursor control
+                if len(hands) == 1:
+                    cursor_hand = hands[0]
+                elif len(hands) >= 2:
+                    sorted_hands = sorted(hands, key=lambda h: h.landmarks[0].px)
+                    action_hand = sorted_hands[0]   # Hand on the left side of frame
+                    cursor_hand = sorted_hands[-1]  # Hand on the right side of frame
+
+                # 3. Action / Click Processing (Exclusively from Left/Action Hand)
+                if not is_paused and action_hand is not None:
+                    raw_gesture, metrics = self.classifier.classify(action_hand)
                     state_info = self.state_machine.update(raw_gesture)
+                else:
+                    metrics = None
+                    fallback_state = GestureState.FIST if is_paused else GestureState.POINTING
+                    state_info = self.state_machine.update(fallback_state)
 
-                    current_state = state_info["state"]
-                    action = state_info["action"]
-                    is_mouse_down = state_info["is_mouse_down"]
-                    is_paused = state_info["is_paused"]
+                current_state = state_info["state"]
+                action = state_info["action"]
+                is_mouse_down = state_info["is_mouse_down"]
+                is_paused = state_info["is_paused"]
 
-                    # 3. Coordinate Mapping from Active Calibration Zone (ROI)
-                    index_tip = hand.landmarks[8]
+                # 4. Cursor Movement Processing (Exclusively from Right/Cursor Hand)
+                if not is_paused and cursor_hand is not None:
+                    index_tip = cursor_hand.landmarks[8]
                     norm_x, norm_y = self._map_roi_coordinates(index_tip.px, index_tip.py, w, h)
-
-                    # Map to Windows Virtual Desktop pixel space
                     screen_x, screen_y = self.monitor_mgr.map_normalized_to_screen(norm_x, norm_y)
                     self.raw_screen_pos = (screen_x, screen_y)
-
-                    # 4. Smoothing Filter
                     self.smoothed_pos = self.smoother.smooth(
                         screen_x, screen_y, timestamp=loop_start
                     )
+                else:
+                    # Paused or Right hand not visible -> Cursor stays locked, no jumping!
+                    self.smoother.reset()
 
-                    # 5. Input Automation
-                    if not is_paused:
+                # 5. Input Automation
+                if not is_paused and self.smoothed_pos != (0, 0):
+                    if action == "mouse_move":
+                        if cursor_hand is not None:
+                            self.mouse_ctrl.move_to(self.smoothed_pos[0], self.smoothed_pos[1])
+                    elif action in ("click", "mouse_down", "mouse_drag", "mouse_up"):
                         self._handle_input_actions(action, self.smoothed_pos)
 
-                else:
-                    # No hand in frame -> Safety release and reset filters
-                    metrics = None
-                    state_info = self.state_machine.update(GestureState.UNKNOWN)
-                    current_state = state_info["state"]
-                    action = state_info["action"]
-                    is_mouse_down = state_info["is_mouse_down"]
-                    is_paused = state_info["is_paused"]
-                    
+                if len(hands) == 0 or is_paused:
                     if is_mouse_down:
                         self.mouse_ctrl.release_all()
-
-                    self.smoother.reset()
 
                 # 6. Render HUD and Visuals
                 hud_frame = self.hud.render(
                     frame=frame,
-                    hand=hand,
+                    hand=cursor_hand,
                     current_state=current_state,
                     action=action,
                     is_mouse_down=is_mouse_down,
@@ -187,9 +215,17 @@ class GestureApp:
                     metrics=metrics,
                 )
 
-                # Draw MediaPipe skeletal wireframe
-                if hand and self.cfg.ui.show_landmarks:
-                    self.detector.draw_landmarks(hud_frame, hand)
+                # Draw MediaPipe skeletal wireframes with clear role labels
+                if self.cfg.ui.show_landmarks:
+                    if cursor_hand is not None:
+                        self.detector.draw_landmarks(hud_frame, cursor_hand, color_custom=(50, 220, 50))
+                        wrist = cursor_hand.landmarks[0]
+                        label = "CURSOR (MOUSE)" if len(hands) == 1 else "CURSOR [DIR]"
+                        cv2.putText(hud_frame, label, (wrist.px - 35, wrist.py + 25), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (50, 220, 50), 1, cv2.LINE_AA)
+                    if action_hand is not None:
+                        self.detector.draw_landmarks(hud_frame, action_hand, color_custom=(0, 165, 255))
+                        wrist = action_hand.landmarks[0]
+                        cv2.putText(hud_frame, "CLIQUE / ACAO [ESQ]", (wrist.px - 35, wrist.py + 25), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 165, 255), 1, cv2.LINE_AA)
 
                 cv2.imshow(self.cfg.ui.window_name, hud_frame)
 
@@ -221,7 +257,7 @@ class GestureApp:
             self.shutdown(cap)
 
     def _map_roi_coordinates(self, px: int, py: int, frame_w: int, frame_h: int) -> Tuple[float, float]:
-        """Convert pixel position within camera frame into normalized [0.0, 1.0] ROI coordinates."""
+        """Convert pixel position within camera frame into normalized [0.0, 1.0] ROI coordinates with speed multiplier."""
         x_min = self.cfg.calibration.margin_x_min * frame_w
         x_max = self.cfg.calibration.margin_x_max * frame_w
         y_min = self.cfg.calibration.margin_y_min * frame_h
@@ -230,8 +266,20 @@ class GestureApp:
         roi_w = max(1.0, x_max - x_min)
         roi_h = max(1.0, y_max - y_min)
 
-        norm_x = (px - x_min) / roi_w
-        norm_y = (py - y_min) / roi_h
+        # Center-relative normalized coordinates [-0.5, +0.5]
+        center_x = (x_min + x_max) / 2.0
+        center_y = (y_min + y_max) / 2.0
+
+        rel_x = (px - center_x) / roi_w
+        rel_y = (py - center_y) / roi_h
+
+        # Apply speed multiplier so cursor traverses full screen faster and without hand reaching camera borders
+        mult = getattr(self.cfg.calibration, "speed_multiplier", 1.35)
+        rel_x *= mult
+        rel_y *= mult
+
+        norm_x = rel_x + 0.5
+        norm_y = rel_y + 0.5
 
         # Clamp to [0.0, 1.0]
         return max(0.0, min(1.0, norm_x)), max(0.0, min(1.0, norm_y))
@@ -244,16 +292,20 @@ class GestureApp:
             # Pointing gesture -> standard cursor motion
             self.mouse_ctrl.move_to(target_x, target_y)
 
+        elif action == "click":
+            # Dedicated instant single left click (Zero unwanted dragging)
+            self.mouse_ctrl.click(target_x, target_y)
+
         elif action == "mouse_down":
-            # Start of pinch -> left click down / start drag
+            # Open hand -> left click down / start hold drag
             self.mouse_ctrl.mouse_down(target_x, target_y)
 
         elif action == "mouse_drag":
-            # Sustained pinch -> move cursor with button held down (drags window/element)
+            # Sustained open hand -> move cursor with button held down (drags window/element)
             self.mouse_ctrl.move_to(target_x, target_y)
 
         elif action == "mouse_up":
-            # Open hand or release -> drop drag / release click
+            # Release open hand -> drop drag / release click
             self.mouse_ctrl.mouse_up(target_x, target_y)
 
     def toggle_pause(self):
@@ -321,14 +373,14 @@ def parse_arguments() -> AppConfig:
     parser.add_argument(
         "--min-cutoff",
         type=float,
-        default=1.2,
-        help="1€ Filter min_cutoff parameter for jitter reduction (default: 1.2)",
+        default=0.05,
+        help="1€ Filter min_cutoff parameter for jitter reduction (default: 0.05)",
     )
     parser.add_argument(
         "--beta",
         type=float,
-        default=0.05,
-        help="1€ Filter beta parameter for high-speed responsiveness (default: 0.05)",
+        default=0.08,
+        help="1€ Filter beta parameter for high-speed responsiveness (default: 0.08)",
     )
 
     args = parser.parse_args()

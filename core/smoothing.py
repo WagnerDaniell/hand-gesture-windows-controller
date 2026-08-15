@@ -115,20 +115,23 @@ class ExponentialMovingAverage:
 
 class CursorSmoother:
     """
-    Unified 2D coordinate smoother with deadzone suppression and filter selection.
+    Unified 2D coordinate smoother with deadzone suppression, smoothstep deceleration,
+    and adaptive 1€ / EMA filtering to eliminate hand tremors on standstill.
     """
 
     def __init__(
         self,
         filter_type: str = "one_euro",
-        min_cutoff: float = 1.2,
-        beta: float = 0.05,
+        min_cutoff: float = 0.05,
+        beta: float = 0.08,
         d_cutoff: float = 1.0,
-        ema_alpha: float = 0.35,
-        deadzone_pixels: float = 1.5,
+        ema_alpha: float = 0.30,
+        deadzone_pixels: float = 2.0,
+        damping_radius: float = 14.0,
     ):
         self.filter_type = filter_type
         self.deadzone_pixels = deadzone_pixels
+        self.damping_radius = max(damping_radius, deadzone_pixels + 0.1)
         
         self.one_euro_x = OneEuroFilter(min_cutoff=min_cutoff, beta=beta, d_cutoff=d_cutoff)
         self.one_euro_y = OneEuroFilter(min_cutoff=min_cutoff, beta=beta, d_cutoff=d_cutoff)
@@ -138,18 +141,27 @@ class CursorSmoother:
         self.last_output_y: Optional[float] = None
 
     def smooth(self, x: float, y: float, timestamp: Optional[float] = None) -> Tuple[int, int]:
-        """Apply filtering and deadzone logic to (x, y) target coordinates."""
+        """Apply filtering and smoothstep deceleration damping to (x, y) target coordinates."""
         if self.filter_type == "one_euro":
             filtered_x = self.one_euro_x.filter(x, timestamp)
             filtered_y = self.one_euro_y.filter(y, timestamp)
         else:
             filtered_x, filtered_y = self.ema.filter(x, y)
 
-        # Apply deadzone to prevent sub-pixel micro-jitter when hand is still
         if self.last_output_x is not None and self.last_output_y is not None:
             distance = math.hypot(filtered_x - self.last_output_x, filtered_y - self.last_output_y)
-            if distance < self.deadzone_pixels:
+            
+            # 1. Full stop deadzone: completely freeze micro-jitter when hand stops
+            if distance <= self.deadzone_pixels:
                 return int(round(self.last_output_x)), int(round(self.last_output_y))
+            
+            # 2. Smoothstep deceleration easing: gently transition between moving and stopping
+            if distance < self.damping_radius:
+                ratio = (distance - self.deadzone_pixels) / (self.damping_radius - self.deadzone_pixels)
+                # Hermite interpolation (smoothstep): S(t) = 3t^2 - 2t^3
+                ease_factor = ratio * ratio * (3.0 - 2.0 * ratio)
+                filtered_x = self.last_output_x + (filtered_x - self.last_output_x) * ease_factor
+                filtered_y = self.last_output_y + (filtered_y - self.last_output_y) * ease_factor
 
         self.last_output_x = filtered_x
         self.last_output_y = filtered_y

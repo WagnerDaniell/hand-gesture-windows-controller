@@ -11,10 +11,11 @@ from typing import Optional, Dict, Any
 class GestureState(Enum):
     """Recognized discrete gesture states."""
     UNKNOWN = auto()
-    POINTING = auto()       # Index finger raised -> Cursor control
-    PINCH_DRAG = auto()     # Index + Thumb pinched -> Left click hold / Drag
-    OPEN_HAND = auto()      # All fingers extended -> Release click / Hover
-    FIST = auto()           # Closed fist -> Safety lock / Neutral pause
+    POINTING = auto()       # Index finger raised -> Cursor control (Neutral)
+    CLICK = auto()          # Two fingers (✌️) or Quick Pinch (👌) -> Dedicated Single Left Click
+    PINCH_DRAG = auto()     # Legacy compatibility
+    OPEN_HAND = auto()      # All fingers extended (🖐️) -> Left Click Down / Drag Window
+    FIST = auto()           # Closed fist (✊) -> Safety lock / Neutral pause
 
 
 class GestureStateMachine:
@@ -46,7 +47,7 @@ class GestureStateMachine:
         {
             'state': GestureState,
             'state_changed': bool,
-            'action': str, # 'mouse_move', 'mouse_down', 'mouse_up', 'pause', 'idle'
+            'action': str, # 'mouse_move', 'click', 'mouse_down', 'mouse_drag', 'mouse_up', 'pause', 'idle'
             'is_mouse_down': bool,
             'is_paused': bool
         }
@@ -87,7 +88,8 @@ class GestureStateMachine:
             state_changed = True
 
             # Process state transitions
-            if self.current_state == GestureState.PINCH_DRAG:
+            if self.current_state == GestureState.OPEN_HAND:
+                # Open hand activates hold / drag
                 if not self.is_mouse_down:
                     self.is_mouse_down = True
                     self.drag_start_time = now
@@ -95,25 +97,36 @@ class GestureStateMachine:
                 else:
                     action = "mouse_drag"
 
-            elif self.current_state in (GestureState.OPEN_HAND, GestureState.FIST, GestureState.UNKNOWN):
+            elif self.current_state in (GestureState.CLICK, GestureState.PINCH_DRAG):
+                # Dedicated single click
                 if self.is_mouse_down:
                     self.is_mouse_down = False
                     self.drag_start_time = None
                     action = "mouse_up"
-                elif self.current_state == GestureState.FIST:
-                    action = "pause"
                 else:
-                    action = "idle"
+                    action = "click"
 
-            elif self.current_state == GestureState.POINTING:
-                # If we were previously pinching and now pointing, keep pointing action
-                action = "mouse_move"
+            elif self.current_state in (GestureState.POINTING, GestureState.UNKNOWN):
+                if self.is_mouse_down:
+                    self.is_mouse_down = False
+                    self.drag_start_time = None
+                    action = "mouse_up"
+                else:
+                    action = "mouse_move"
+
+            elif self.current_state == GestureState.FIST:
+                if self.is_mouse_down:
+                    self.is_mouse_down = False
+                    self.drag_start_time = None
+                    action = "mouse_up"
+                else:
+                    action = "pause"
 
         else:
             # Steady state actions
-            if self.current_state == GestureState.PINCH_DRAG:
+            if self.current_state == GestureState.OPEN_HAND:
                 action = "mouse_drag" if self.is_mouse_down else "mouse_down"
-            elif self.current_state == GestureState.POINTING:
+            elif self.current_state in (GestureState.CLICK, GestureState.PINCH_DRAG, GestureState.POINTING, GestureState.UNKNOWN):
                 action = "mouse_move"
             elif self.current_state == GestureState.FIST:
                 action = "pause"

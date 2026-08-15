@@ -171,16 +171,16 @@ class HUDRenderer:
     ):
         """Draw modern top-left gesture badge card."""
         card_x, card_y = 12, 12
-        card_w, card_h = 240, 72
+        card_w, card_h = 260, 72
 
         # Draw dark translucent card background
         self._draw_rounded_card(img, card_x, card_y, card_w, card_h, (25, 25, 30), alpha=0.85)
 
         # Determine Badge Style
         if is_paused:
-            badge_text = "PAUSED"
+            badge_text = "PAUSADO (TRAVADO)"
             badge_color = (60, 60, 220)
-            status_desc = "Press F8 to Resume"
+            status_desc = "Faca o Punho [FIST] p/ Retomar"
         elif not has_hand:
             badge_text = "LOOKING FOR HAND"
             badge_color = (130, 130, 130)
@@ -188,15 +188,15 @@ class HUDRenderer:
         elif state == GestureState.POINTING:
             badge_text = "POINTING"
             badge_color = (50, 210, 50)
-            status_desc = "Cursor Control Active"
-        elif state == GestureState.PINCH_DRAG:
-            badge_text = "PINCH / DRAG"
-            badge_color = (0, 140, 255)
-            status_desc = "Left Click Down (Dragging)" if is_mouse_down else "Pinch Detected"
+            status_desc = "Cursor Control (Neutral)"
+        elif state == GestureState.CLICK or state == GestureState.PINCH_DRAG:
+            badge_text = "CLICK (TAP)"
+            badge_color = (0, 220, 255)
+            status_desc = "Single Left Click"
         elif state == GestureState.OPEN_HAND:
-            badge_text = "OPEN HAND"
-            badge_color = (240, 200, 60)
-            status_desc = "Released / Hover Mode"
+            badge_text = "HOLD / DRAG"
+            badge_color = (0, 140, 255)
+            status_desc = "Left Click Held (Dragging)" if is_mouse_down else "Hold Drag Mode"
         elif state == GestureState.FIST:
             badge_text = "CLOSED FIST"
             badge_color = (90, 90, 220)
@@ -204,7 +204,7 @@ class HUDRenderer:
         else:
             badge_text = "NEUTRAL"
             badge_color = (160, 160, 160)
-            status_desc = "Ready"
+            status_desc = "Cursor Control (Neutral)"
 
         # Draw colored indicator pill
         cv2.circle(img, (card_x + 18, card_y + 24), 8, badge_color, -1, cv2.LINE_AA)
