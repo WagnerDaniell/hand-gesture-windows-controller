@@ -1,0 +1,10 @@
+# Hand Gesture Windows Controller
+# Requirements Specification
+
+opencv-python>=4.8.0
+mediapipe>=0.10.0
+pyautogui>=0.9.54
+pywin32>=306
+screeninfo>=0.8.1
+numpy>=1.24.0
+pynput>=1.7.6
